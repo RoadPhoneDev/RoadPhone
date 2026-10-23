@@ -7,7 +7,7 @@ echo.
 
 rem --- 1) estan todos los archivos?
 set FALTA=
-for %%F in (launcher.py puente.py telemetria.py actualizador.py) do if not exist "%%F" set FALTA=!FALTA! %%F
+for %%F in (launcher.py puente.py telemetria.py actualizador.py autoactualizar.py) do if not exist "%%F" set FALTA=!FALTA! %%F
 if not "!FALTA!"=="" goto faltan
 
 rem --- 2) Python
@@ -31,7 +31,7 @@ echo Convirtiendo icono.png a icono.ico...
 :sinconv
 
 rem --- 5) opciones
-set OPTS=--noconfirm --clean --windowed --name RoadPhone --hidden-import puente --hidden-import telemetria --hidden-import actualizador
+set OPTS=--noconfirm --clean --windowed --name RoadPhone --hidden-import puente --hidden-import telemetria --hidden-import actualizador --hidden-import autoactualizar
 if exist icono.ico set OPTS=!OPTS! --icon icono.ico --add-data "icono.ico;."
 if exist fondo.png set OPTS=!OPTS! --add-data "fondo.png;."
 if exist fondo.jpg set OPTS=!OPTS! --add-data "fondo.jpg;."

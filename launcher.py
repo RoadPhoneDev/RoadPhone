@@ -30,6 +30,7 @@ import unicodedata
 from collections import deque
 
 import actualizador
+import autoactualizar
 import puente
 
 TITLE = "Road Phone"
@@ -37,10 +38,16 @@ TITLE = "Road Phone"
 # ---------------------------------------------------------------- version de la aplicacion
 # Sube APP_VERSION en cada entrega (0.2.0 -> 0.2.1 arreglos, 0.3.0 funciones nuevas) y anota los cambios abajo.
 APP_STAGE = "Alpha"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 VERSION_TAG = "%s %s" % (APP_STAGE, APP_VERSION)
 WINDOW_TITLE = "Road Phone %s \u03b1" % APP_VERSION
 CHANGELOG = [
+    ("0.3.0", [
+        "Actualización de Road Phone desde GitHub con un botón (Ajustes → Road Phone).",
+        "Descarga verificada con hash y copia de respaldo; si algo falla, vuelve a la versión anterior.",
+        "Aviso en la ventana cuando hay una versión nueva de la aplicación.",
+        "Botones del plugin renombrados para no confundirlos con los de la aplicación.",
+    ]),
     ("0.2.0", [
         "Rediseño: espaciado y jerarquía más limpios, textos de estado más cortos.",
         "Versión visible (pie, barra de título e insignia ALPHA).",
@@ -107,6 +114,10 @@ def plugins_dir(game_dir):
     return os.path.join(game_dir, "bin", "win_x64", "plugins")
 
 
+# Al ejecutarse con --aplicar-actualizacion, la copia NUEVA reemplaza a la vieja (ya cerrada) y la vuelve a abrir
+if autoactualizar.ARG in sys.argv:
+    sys.exit(autoactualizar.apply_from_args(sys.argv[sys.argv.index(autoactualizar.ARG) + 1:]))
+
 # Al ejecutarse con --puente, este mismo programa funciona como el puente (sirve tambien empaquetado en .exe)
 if "--puente" in sys.argv:
     sys.argv.remove("--puente")
@@ -125,6 +136,8 @@ class Core:
         self.proc = None
         self.busy = False
         self.upd = {"busy": False, "latest": "", "kind": None, "rel": None, "data": None, "msg": ""}
+        self.app = {"busy": False, "rel": None, "msg": "", "error": False}
+        self._app_retry_at = 0.0
         self._pending_restore = False
         self._retry_at = 0.0
         self._notified = ""
@@ -133,6 +146,12 @@ class Core:
         self.hoy = {"km": 0.0, "entregas": 0, "ingresos": 0.0}
         self._auto_blocked = False
         self.logged = False
+        res = autoactualizar.read_result(puente.STATE_DIR)       # resultado de una actualizacion de la app
+        if res:
+            if res.get("ok"):
+                self.events.put(("info", "Road Phone se actualizó a la versión %s." % res.get("version")))
+            else:
+                self.events.put(("warn", "No se pudo actualizar Road Phone: %s" % res.get("error")))
         self.user = ""
         self._run = True
         self.st = {"plugin": "sin_memoria", "plugin_rev": 0, "plugin_file": False, "game_dir": False,
@@ -367,10 +386,62 @@ class Core:
             self.events.put(("info", "Se restauró la versión anterior del plugin.\nSi el juego estaba abierto, ciérralo y ábrelo otra vez."))
         return True
 
+    # ---- actualizacion de la propia aplicacion
+    def check_app_update(self, auto=False):
+        a = self.app
+        if a["busy"]:
+            return
+        a["busy"] = True
+        try:
+            rel = autoactualizar.latest_app()
+            self._save(app_ultima_consulta=time.time())
+            if autoactualizar.is_newer(APP_VERSION, rel):
+                a.update(rel=rel, error=False, msg="Hay una versión nueva de Road Phone: %s." % rel["tag"])
+            else:
+                a.update(rel=None, error=False, msg="Road Phone está al día (%s)." % VERSION_TAG)
+        except actualizador.UpdateError as e:
+            a.update(error=True, msg=str(e))
+            self._app_retry_at = time.time() + 1800
+        except Exception as e:
+            a.update(error=True, msg="No pude buscar actualizaciones (%s)." % e)
+            self._app_retry_at = time.time() + 1800
+        finally:
+            a["busy"] = False
+
+    def update_app_now(self):
+        """Descarga, valida y deja que la copia nueva reemplace a esta. Cierra la aplicacion al final."""
+        a = self.app
+        rel = a.get("rel")
+        if not rel or a["busy"]:
+            return
+        a["busy"] = True
+        try:
+            folder = autoactualizar.install_dir()
+            autoactualizar.check_writable(folder)
+            self.log("Descargando Road Phone %s..." % rel["tag"])
+            new_root = autoactualizar.download_app(rel, os.path.join(puente.STATE_DIR, "actualizacion", "nueva"))
+            self.log("Descarga verificada. Cerrando para instalar...")
+            self.stop()
+            autoactualizar.launch_helper(new_root, folder, puente.STATE_DIR, rel["tag"].lstrip("vV"))
+            self.events.put(("salir",))
+        except actualizador.UpdateError as e:
+            a.update(error=True, msg=str(e))
+            self.log(str(e))
+            self.events.put(("warn", str(e)))
+        except Exception as e:
+            a.update(error=True, msg="No pude actualizar (%s)." % e)
+            self.log(a["msg"])
+            self.events.put(("warn", a["msg"]))
+        finally:
+            a["busy"] = False
+
     def update_loop(self):
         time.sleep(20)
+        autoactualizar.cleanup(os.path.join(puente.STATE_DIR, "actualizacion"))
         while True:
             try:
+                if time.time() > self._app_retry_at and time.time() - float(self.cfg.get("app_ultima_consulta") or 0) > 12 * 3600:
+                    self.check_app_update(auto=True)
                 last = float(self.cfg.get("plugin_ultima_consulta") or 0)
                 if time.time() > self._retry_at and time.time() - last > 12 * 3600 and self.plugin_installed():
                     self.check_update(auto=True)
@@ -925,6 +996,17 @@ class Ui:
         self.lb_hint.pack(fill="x", pady=(8, 0))
         # ajustes (plegado)
         self.head_set, self.body_set = self._fold(f, "Ajustes", self.toggle_settings)
+        tk.Label(self.body_set, text="ROAD PHONE", bg=CARD, fg=GRAY,
+                 font=(FONT, 8, "bold"), anchor="w").pack(fill="x")
+        self.var_aver = tk.StringVar(value="")
+        tk.Label(self.body_set, textvariable=self.var_aver, bg=CARD, fg=GRAY, font=(FONT, 9), anchor="w",
+                 justify="left", wraplength=520).pack(fill="x", pady=(4, 6))
+        arow = tk.Frame(self.body_set, bg=CARD)
+        arow.pack(fill="x", pady=(0, 10))
+        self.btn_acheck = self._button(arow, "Buscar actualización", self.do_check_app)
+        self.btn_acheck.pack(side="left")
+        self.btn_aupdate = self._button(arow, "Actualizar Road Phone", self.do_update_app, bg=ACCENT, hover=ACCENT_H, fg="white")
+        self.btn_aupdate.pack(side="left", padx=(8, 0))
         tk.Label(self.body_set, text="PLUGIN DEL JUEGO", bg=CARD, fg=GRAY,
                  font=(FONT, 8, "bold"), anchor="w").pack(fill="x")
         prow = tk.Frame(self.body_set, bg=CARD)
@@ -938,9 +1020,9 @@ class Ui:
                  justify="left", wraplength=520).pack(fill="x", pady=(0, 6))
         urow = tk.Frame(self.body_set, bg=CARD)
         urow.pack(fill="x", pady=(0, 6))
-        self.btn_check = self._button(urow, "Buscar actualización", self.do_check_update)
+        self.btn_check = self._button(urow, "Buscar plugin nuevo", self.do_check_update)
         self.btn_check.pack(side="left")
-        self.btn_update = self._button(urow, "Actualizar", self.do_update_plugin, bg=ACCENT, hover=ACCENT_H, fg="white")
+        self.btn_update = self._button(urow, "Actualizar plugin", self.do_update_plugin, bg=ACCENT, hover=ACCENT_H, fg="white")
         self.btn_update.pack(side="left", padx=(8, 0))
         self.btn_restore = self._button(urow, "Restaurar anterior", self.do_restore_plugin)
         self.btn_restore.pack(side="left", padx=(8, 0))
@@ -1094,6 +1176,22 @@ class Ui:
                 self.core.events.put(("info", self.core.upd["msg"] or "Listo."))
         self._bg(work)
 
+    def do_check_app(self):
+        def work():
+            self.core.check_app_update()
+            self.core.events.put(("warn" if self.core.app["error"] else "info", self.core.app["msg"] or "Listo."))
+        self._bg(work)
+
+    def do_update_app(self):
+        rel = self.core.app.get("rel")
+        if not rel:
+            return
+        notas = (rel.get("notes") or "").strip()[:400]
+        if self.messagebox.askyesno(TITLE, "Se descargará Road Phone %s y la aplicación se reiniciará sola.\n"
+                                           "Se guarda una copia de la versión actual por si algo falla.\n\n%s\n\n¿Continuar?" % (
+                rel["tag"], notas)):
+            self._bg(self.core.update_app_now)
+
     def do_update_plugin(self):
         u = self.core.upd
         extra = ""
@@ -1164,6 +1262,10 @@ class Ui:
                 self.messagebox.showinfo(TITLE, ev[1])
             elif ev[0] == "warn":
                 self.messagebox.showwarning(TITLE, ev[1])
+            elif ev[0] == "salir":
+                self.core.shutdown()
+                self.root.destroy()
+                return
             elif ev[0] == "session_lost":
                 self.messagebox.showwarning(TITLE, "La sesión guardada ya no es válida. Inicia sesión de nuevo.")
                 self.do_logout()
@@ -1269,9 +1371,11 @@ class Ui:
             else:
                 hint = "El juego se abre aparte. Pulsa Iniciar para preparar todo."
         u = c.upd
-        want_notice = bool(u["kind"]) and not st["busy"]
+        app_new = bool(c.app["rel"])
+        want_notice = (app_new or bool(u["kind"])) and not st["busy"]
         if want_notice:
-            self.lb_notice.config(text="Hay una versión nueva del plugin (v%s)." % u["latest"])
+            self.lb_notice.config(text=("Hay una versión nueva de Road Phone (%s)." % c.app["rel"]["tag"]) if app_new
+                                  else "Hay una versión nueva del plugin (v%s)." % u["latest"])
         if want_notice != self._notice_shown:
             self._notice_shown = want_notice
             if want_notice:
@@ -1294,6 +1398,10 @@ class Ui:
         else:
             ptxt = "Instalada: %s · Aún sin consultar" % inst
         self.var_pver.set(ptxt)
+        ap = c.app
+        self.var_aver.set("Instalada: %s%s" % (VERSION_TAG, ("   ·   Última: %s" % ap["rel"]["tag"]) if ap["rel"] else ""))
+        self._enable(self.btn_acheck, not ap["busy"])
+        self._enable(self.btn_aupdate, bool(ap["rel"]) and not ap["busy"])
         self._enable(self.btn_check, not u["busy"] and st["plugin_file"])
         self._enable(self.btn_update, bool(u["kind"]) and not u["busy"] and st["plugin_file"])
         self._enable(self.btn_restore, c.has_backup() and not u["busy"])

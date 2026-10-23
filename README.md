@@ -12,7 +12,9 @@ Programa para Windows que lee la telemetría de **Euro Truck Simulator 2** y la 
 Windows puede mostrar un aviso de SmartScreen porque el programa aún no está firmado: pulsa *Más información → Ejecutar de todas formas*.
 
 ## Actualizar
-Descarga el zip de la versión nueva y reemplaza la carpeta, o usa el botón de actualización de la app cuando esté disponible.
+Desde la versión 0.3.0, abre *Ajustes → Road Phone* y pulsa **Buscar actualización**. Si hay una versión nueva, pulsa **Actualizar Road Phone**: la app se descarga, se verifica, se reemplaza y se vuelve a abrir sola (con copia de respaldo por si algo falla).
+
+Si vienes de una versión anterior a la 0.3.0, descarga el zip del Release una vez a mano. Si la carpeta de Road Phone está en un lugar protegido (como *Archivos de programa*), muévela a Documentos o al Escritorio.
 
 ## Plugin de telemetría
 Usa el plugin de código abierto [RenCloud/scs-sdk-plugin](https://github.com/RenCloud/scs-sdk-plugin) (licencia MIT).
