@@ -1,5 +1,8 @@
 # Historial de versiones
 
+## Alpha 0.3.1
+- Versión de prueba del actualizador: solo cambia el número de versión.
+
 ## Alpha 0.3.0
 - Actualización de Road Phone desde GitHub con un botón (Ajustes → Road Phone).
 - Descarga verificada con hash y copia de respaldo; si algo falla, vuelve a la versión anterior.

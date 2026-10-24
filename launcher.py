@@ -36,12 +36,15 @@ import puente
 TITLE = "Road Phone"
 
 # ---------------------------------------------------------------- version de la aplicacion
-# Sube APP_VERSION en cada entrega (0.2.0 -> 0.2.1 arreglos, 0.3.0 funciones nuevas) y anota los cambios abajo.
+# Sube APP_VERSION en cada entrega (0.3.0 -> 0.3.1 arreglos, 0.3.0 funciones nuevas) y anota los cambios abajo.
 APP_STAGE = "Alpha"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 VERSION_TAG = "%s %s" % (APP_STAGE, APP_VERSION)
 WINDOW_TITLE = "Road Phone %s \u03b1" % APP_VERSION
 CHANGELOG = [
+    ("0.3.1", [
+        "Versión de prueba del actualizador: solo cambia el número de versión.",
+    ]),
     ("0.3.0", [
         "Actualización de Road Phone desde GitHub con un botón (Ajustes → Road Phone).",
         "Descarga verificada con hash y copia de respaldo; si algo falla, vuelve a la versión anterior.",
